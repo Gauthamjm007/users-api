@@ -2,6 +2,7 @@ package users
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/harshasavanth/bookstore_oauth-go/oauth"
 	"github.com/harshasavanth/bookstore_users-api/domain/users"
 	"github.com/harshasavanth/bookstore_users-api/services"
 	"github.com/harshasavanth/bookstore_users-api/utils/errors"
@@ -20,7 +21,6 @@ func Create(c *gin.Context) {
 	var user users.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		restErr := errors.NewBadRequestError("invalid JSON body")
-
 		c.JSON(restErr.Status, restErr)
 		return
 	}
@@ -34,6 +34,10 @@ func Create(c *gin.Context) {
 }
 
 func Get(c *gin.Context) {
+	if err := oauth.AuthenticateRequest(c.Request); err != nil {
+		c.JSON(err.Status, err)
+		return
+	}
 	userId, idErr := GetUserId(c.Param("user_id"))
 	if idErr != nil {
 		c.JSON(idErr.Status, idErr)
@@ -44,7 +48,11 @@ func Get(c *gin.Context) {
 		c.JSON(getErr.Status, getErr)
 		return
 	}
-	c.JSON(http.StatusOK, user.Marshall(c.GetHeader("X-Public") == "true"))
+	if oauth.GetCallerId(c.Request) == userId {
+		c.JSON(http.StatusOK, user.Marshall(false))
+		return
+	}
+	c.JSON(http.StatusOK, user.Marshall(oauth.IsPublic(c.Request)))
 }
 
 func Update(c *gin.Context) {
@@ -89,5 +97,19 @@ func Delete(c *gin.Context) {
 		c.JSON(err.Status, err)
 	}
 	c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
+}
 
+func Login(c *gin.Context) {
+	var request users.LoginRequest
+	if err := c.BindJSON(&request); err != nil {
+		restErr := errors.NewBadRequestError("invalid json body")
+		c.JSON(restErr.Status, restErr)
+		return
+	}
+	user, err := services.UsersService.LoginUser(request)
+	if err != nil {
+		c.JSON(err.Status, err)
+		return
+	}
+	c.JSON(http.StatusOK, user.Marshall(c.GetHeader("X-Public") == "true"))
 }

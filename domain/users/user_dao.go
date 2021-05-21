@@ -5,14 +5,17 @@ import (
 	"github.com/harshasavanth/bookstore_users-api/datasources/mysql/users_db"
 	"github.com/harshasavanth/bookstore_users-api/logger"
 	"github.com/harshasavanth/bookstore_users-api/utils/errors"
+	"github.com/harshasavanth/bookstore_users-api/utils/mysql_utils"
+	"strings"
 )
 
 const (
-	queryInsertUser       = "INSERT INTO users(first_name, last_name, email, date_created, status, password) VALUES(?,?,?,?,?,?);"
-	queryGetUser          = "SELECT id, first_name, last_name, email, date_created, status FROM users WHERE id = ?;"
-	queryUpdateUser       = "UPDATE users SET first_name=?, last_name=?,email=? WHERE id=?;"
-	queryDeleteUser       = "DELETE from users WHERE id=?;"
-	queryFindUserByStatus = "SELECT id, first_name, last_name, email, date_created, status FROM users WHERE status =?;"
+	queryInsertUser             = "INSERT INTO users(first_name, last_name, email, date_created, status, password) VALUES(?,?,?,?,?,?);"
+	queryGetUser                = "SELECT id, first_name, last_name, email, date_created, status FROM users WHERE id = ?;"
+	queryUpdateUser             = "UPDATE users SET first_name=?, last_name=?,email=? WHERE id=?;"
+	queryDeleteUser             = "DELETE from users WHERE id=?;"
+	queryFindByStatus           = "SELECT id, first_name, last_name, email, date_created, status FROM users WHERE status =?;"
+	queryFindByEmailAndPassword = "SELECT id, first_Name, last_name, email, date_created, status FROM users WHERE email=? AND password=? AND status=?;"
 )
 
 func (user *User) Save() *errors.RestErr {
@@ -69,7 +72,7 @@ func (user *User) Update() *errors.RestErr {
 }
 
 func (user *User) FindByStatus(status string) ([]User, *errors.RestErr) {
-	stmt, err := users_db.Client.Prepare(queryFindUserByStatus)
+	stmt, err := users_db.Client.Prepare(queryFindByStatus)
 	if err != nil {
 		logger.Error("error when trying to prepare find user statement ", err)
 		return nil, errors.NewInternalServerError("database error")
@@ -106,6 +109,25 @@ func (user *User) Delete() *errors.RestErr {
 	defer stmt.Close()
 	if _, err = stmt.Exec(user.Id); err != nil {
 		logger.Error("error when trying to delete user", err)
+		return errors.NewInternalServerError("database error")
+	}
+	return nil
+}
+
+func (user *User) FindByEmailAndPassword() *errors.RestErr {
+	stmt, err := users_db.Client.Prepare(queryFindByEmailAndPassword)
+	if err != nil {
+		logger.Error("error when trying to prepare get user by email and password statement", err)
+		return errors.NewInternalServerError("database error")
+	}
+	defer stmt.Close()
+
+	result := stmt.QueryRow(user.Email, user.Password, StatusActive)
+	if getErr := result.Scan(&user.Id, &user.FirstName, &user.LastName, &user.Email, &user.DateCreated, &user.Status); getErr != nil {
+		if strings.Contains(getErr.Error(), mysql_utils.ErrorNoRows) {
+			return errors.NewNotFoundError("invalid credentials")
+		}
+		logger.Error("error when trying to get user by email and password ", getErr)
 		return errors.NewInternalServerError("database error")
 	}
 	return nil
